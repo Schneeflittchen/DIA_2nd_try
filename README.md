@@ -5,7 +5,7 @@ HANDIN: JUST GITHUB REPO & SLIDES OF PLOTS (plus some explanations)
 PseudoCode:
 
 Initialisation
- •	Define time horizon T
+ •	Define time horizon T\
  •	Initialize 4 websites with respective subcampaigns of (4+) different advertizers
  •	Define the 3 occuring user classes features (ie. Pop the 4th combination of the 2 binary features) per subcampaign (so all 4 classes can occur, and actually even change by the campaign (on diff. sites we could get different context data…) – but this does not apply when we just randomly sample only binary values anyway)
  •	For each subcampain & user class:
