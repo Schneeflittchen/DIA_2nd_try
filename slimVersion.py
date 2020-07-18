@@ -79,20 +79,25 @@ for day in range(T):
             selected_ad[i].append(hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bid0,
                               Q[i, user_classes[i, auction], 1:, s] * bids[i])) #using the TS-sample for our advertiseers click probability
             for s in range(nr_slots):
-                #getting a user click
+                #getting a user input
                 if selected_ad[i,-1][s]==0:
                     reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bid0  # Bernoulli
                 else:
                     reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bids[i]  # Bernoulli
                 if reward != 0: #if clicked
                     rewards[i].append(reward)
-                    if selected_ad[i,s,-1]==0: #if our advertisers ad was displayed in a slot: update beta-distribution (since clicked)
+                    if selected_ad[i,-1][s]==0: #if our advertisers ad was displayed in the slot: update beta-distribution (since clicked)
                         beta_params[i,0,0] += reward/bid0
                         beta_params[i,0,1] += (1-reward/bid0)
+                    else:
+                        if any([selected_ad[i,-1][k] for k in range(s)]==0):
+                            beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
                     break
                 else:
                     if s == nr_slots-1: #if no ad was clicked at all, add a 0 reward
                         rewards[i].append(0)
+                        if any(selected_ad[i,-1][:]==0):
+                            beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
 
         ###Hungarian for Matching each publisher's ads and slots - Alireza
 
