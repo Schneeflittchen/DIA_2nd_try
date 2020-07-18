@@ -49,10 +49,10 @@ def get_stochastic_bids(nr_auctions):
 
 #TS-Learner and Plot variables
 beta_params=np.ones((nr_websites,4,2)) #each website has its own TS learner, which learns the 3 user class demand curves + 1 aggregated curve, with 2 parameters for each beta distribution
-selected_ad=[[] for i in range(nr_websites)]
 rewards=[[] for i in range(nr_websites)]
+clairvoyant_rewards=[[] for i in range(nr_websites)]
 
-#Matching algorithm for publishers
+#Matching algorithm for publishers: Hungarian for matching each publisher's ads and slots - Alireza
 def hungarian_matcher(weights):
     return idx #the index of the ad, in the order of the slots, e.g. in idx=[2,5,1,3,7], ad 2 is chosen for slot 1, ad 5 for slot 2 etc.
 
@@ -74,32 +74,41 @@ for day in range(T):
         bid0=42
         ### (pt6) using MULTI-knapsack to determine our advertisers bid AND BUDGET (Hungarian) - Volunteers
 
-        ###using a bandit (TS) to estimate the q_i,j of our advertisers subcampaigns on each website - Me
+        ###Matching of ads and slots for each publisher
         for i in range(nr_websites):
-            selected_ad[i].append(hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bid0,
-                              Q[i, user_classes[i, auction], 1:, s] * bids[i])) #using the TS-sample for our advertiseers click probability
+            # using the TS-sample for our advertiseers click probability
+            selected_ad = [hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bid0,
+                              Q[i, user_classes[i, auction], 1:, :] * bids[i])]
+            rewards[i].append(0) #add at least a 0 reward
             for s in range(nr_slots):
                 #getting a user input
-                if selected_ad[i,-1][s]==0:
-                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bid0  # Bernoulli
+                if selected_ad[s]==0:
+                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[s],s])*bid0  # Bernoulli
                 else:
-                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bids[i]  # Bernoulli
-                if reward != 0: #if clicked
-                    rewards[i].append(reward)
-                    if selected_ad[i,-1][s]==0: #if our advertisers ad was displayed in the slot: update beta-distribution (since clicked)
+                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[s],s])*bids[i]  # Bernoulli
+                if reward > 0: #if clicked
+                    rewards[i,-1] += reward
+                    if selected_ad[s]==0: #if our advertisers ad was displayed in the slot: update beta-distribution (since clicked)
                         beta_params[i,0,0] += reward/bid0
                         beta_params[i,0,1] += (1-reward/bid0)
                     else:
-                        if any([selected_ad[i,-1][k] for k in range(s)]==0):
+                        if any([selected_ad[k] for k in range(s+1)]==0):
                             beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
                     break
                 else:
-                    if s == nr_slots-1: #if no ad was clicked at all, add a 0 reward
-                        rewards[i].append(0)
-                        if any(selected_ad[i,-1][:]==0):
+                    if s == nr_slots-1: #if no ad was clicked at all
+                        if any(selected_ad==0):
                             beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
 
-        ###Hungarian for Matching each publisher's ads and slots - Alireza
+            # using the clairvoyant algorithm
+            selected_ad_clairvoyant = [hungarian_matcher(Q[i, user_classes[i, auction], 0, :] * bid0,
+                                             Q[i, user_classes[i, auction], 1:, :] * bids[i])]
+            clairvoyant_rewards[i].append(0)
+            for s in range(nr_slots):
+                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad[s], s]) * bids[i]  # Bernoulli
+                if reward>0:
+                    clairvoyant_rewards[i,-1] += reward
+                
 
         ###VCG-auctions for our advertisers payments - Anne
 
