@@ -65,32 +65,29 @@ for day in range(T):
     #sampling the user classes of each website's visitors
     user_classes = get_user_classes(nr_daily_users)
 
+    ###using knapsack to determine our advertisers bid - Talip
+    bid0 = 42
     #receiving the stochastic advertiser's bids
-    bids=get_stochastic_bids(nr_daily_users)
+    bids= [bid0].append(get_stochastic_bids(nr_daily_users))
 
     for auction in range(nr_daily_users): #evaluating each auction individually
 
-        ###using knapsack to determine our advertisers bid - Talip
-        bid0=42
         ### (pt6) using MULTI-knapsack to determine our advertisers bid AND BUDGET (Hungarian) - Volunteers
 
         ###Matching of ads and slots for each publisher
         for i in range(nr_websites):
             # using the TS-sample for our advertiseers click probability
-            selected_ad = [hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bid0,
+            selected_ad = [hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bids[0],
                               Q[i, user_classes[i, auction], 1:, :] * bids[i])]
             rewards[i].append(0) #add at least a 0 reward
             for s in range(nr_slots):
                 #getting a user input
-                if selected_ad[s]==0:
-                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[s],s])*bid0  # Bernoulli
-                else:
-                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[s],s])*bids[i]  # Bernoulli
+                reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[s],s])*bids[i]  # Bernoulli
                 if reward > 0: #if clicked
                     rewards[i,-1] += reward
                     if selected_ad[s]==0: #if our advertisers ad was displayed in the slot: update beta-distribution (since clicked)
-                        beta_params[i,0,0] += reward/bid0
-                        beta_params[i,0,1] += (1-reward/bid0)
+                        beta_params[i,0,0] += reward/bids[0]
+                        beta_params[i,0,1] += (1-reward/bids[0])
                     else:
                         if any([selected_ad[k] for k in range(s+1)]==0):
                             beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
@@ -101,14 +98,14 @@ for day in range(T):
                             beta_params[i, 0, 1] += 1 #in case our advertiser was shown before, but not clicked, update beta-distribution accordingly with a reward=0
 
             # using the clairvoyant algorithm
-            selected_ad_clairvoyant = [hungarian_matcher(Q[i, user_classes[i, auction], 0, :] * bid0,
+            selected_ad_clairvoyant = [hungarian_matcher(Q[i, user_classes[i, auction], 0, :] * bids[0],
                                              Q[i, user_classes[i, auction], 1:, :] * bids[i])]
             clairvoyant_rewards[i].append(0)
             for s in range(nr_slots):
                 reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad[s], s]) * bids[i]  # Bernoulli
                 if reward>0:
                     clairvoyant_rewards[i,-1] += reward
-                
+
 
         ###VCG-auctions for our advertisers payments - Anne
 
