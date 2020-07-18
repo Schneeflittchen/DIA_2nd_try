@@ -30,39 +30,69 @@ def get_daily_users():
     #we generate separate users for each website (so they have 1. different user classes and 2. different occurrence probabilities of user classes), to stay more realistic
 feature1_probability=np.random.uniform(0.01,1,nr_websites) #using uniform to get some rather different and maybe extreme patterns
 feature2_probability=np.random.uniform(0.01,1,nr_websites)
-pop_user=np.random.randint(0,4,nr_websites) #because each website only receives 3 of the 4 user classes, we will pop one class per website by re-drawing/neglecting if the unwanted class occurs
+class_probabilities=[ [feature1_probability[i]*feature2_probability[i],
+                    (1-feature1_probability[i])*feature2_probability[i],
+                    feature1_probability[i]*(1-feature2_probability[i]) ] for i in range(nr_websites)] #because each website only receives 3 of the theoretically 4 user classes, we will neglect one class per website (always the same class, since the uniform distribution allows to do this without loss of generality)
 
-def get_user_classes(nr_users,feature1_probability,feature2_probability):
-     return [ [np.random.binomial(1, feature1_probability, nr_users)],
-              [np.random.binomial(1, feature2_probability, nr_users)] ] #binomial with n=1 consecutive trials equals the bernoulli distribution with 0 or 1 as outcome in each run/entry
+def get_user_classes(nr_users):
+     return [np.random.choices((0,1,2),class_probabilities[i,:],nr_users) for i in range(nr_websites)]
 
 #click probabilities on the different websites per user class (amount=3), to click on ad i in slot j
     #click probabilites of the different ads in the different slots for each website vary, as every website can display them differently and attracts different users
-Q=np.random.rand(nr_websites,3,nr_ads,nr_slots) #again uniform distribution
+Q=np.random.rand(nr_websites,3,nr_ads,nr_slots) #again uniform distribution, assume each entry where index nr_ads=0 belongs to our advertiser
 
 #define stochastic advertisers
     #on average they should bid as much as our advertiser (to allow every advertiser to win some auctions)
     #each advertiser bids only once per day, a daily constant bid per subcampaign
 def get_stochastic_bids(nr_auctions):
-    return [np.random.normal(campaign_daily_budget/nr_auctions, campaign_daily_budget/nr_auctions/5, nr_websites) for i in range(nr_ads)]
+    return [[np.random.normal(campaign_daily_budget/nr_auctions, campaign_daily_budget/nr_auctions/5, nr_auctions) for i in range(nr_ads)] for k in range(nr_websites)]
 
-
+#TS-Learner and Plot variables
+beta_params=np.ones((nr_websites,4,2)) #each website has its own TS learner, which learns the 3 user class demand curves + 1 aggregated curve, with 2 parameters for each beta distribution
+selected_ad=[[[]for k in range(nr_slots)] for i in range(nr_websites)]
+rewards=[[] for i in range(nr_websites)]
 
 for day in range(T):
     if day%7 == 0: #at beginning and every 7 days the contexts are defined
         context=0
 
-    ###using a bandit (TS) to estimate the q_i,j of our advertisers subcampaigns on each website - Me
+    nr_daily_users=get_daily_users()
 
-    ###using knapsack to determine our advertisers bid - Talip
+    #sampling the user classes of each website's visitors
+    user_classes = get_user_classes(nr_daily_users)
 
-    ### (pt6) using MULTI-knapsack to determine our advertisers bid AND BUDGET (Hungarian) - Volunteers
+    #receiving the stochastic advertiser's bids
+    bids=get_stochastic_bids(nr_daily_users)
 
-    ###Hungarian for Matching each publisher's ads and slots - Alireza
+    for auction in range(nr_daily_users): #evaluating each auction individually
 
-    ###VCG-auctions for our advertisers payments - Anne
+        ###using knapsack to determine our advertisers bid - Talip
+        bid0=42
+        ### (pt6) using MULTI-knapsack to determine our advertisers bid AND BUDGET (Hungarian) - Volunteers
 
-    ###using clairvoyant implementations, determine the cumulative regrets of each learner - Volunteers??
+        ###using a bandit (TS) to estimate the q_i,j of our advertisers subcampaigns on each website - Me
+        for i in range(nr_websites):
+            for s in range(nr_slots):
+                selected_ad[i,s].append(np.argmax(np.random.beta(beta_params[i,0, 0], beta_params[i,0, 1])*bid0,Q[i,user_classes[i,auction],1:,s])*bids[i]) #pulling the TS-arm: for each website, draw the arm with the highest likelihood
+                if selected_ad[i,s,-1]==0:
+                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bid0  # Bernoulli
+                else:
+                    reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bids[i]  # Bernoulli
+                if reward != 0: #if clicked
+                    rewards[i].append(reward)
+                    if selected_ad[i,s,-1]==0: #if our advertisers ad was displayed in a slot: update beta-distribution (since clicked)
+                        beta_params[i,0,0] += reward/bid0
+                        beta_params[i,0,1] += (1-reward/bid0)
+                    break
+                else:
+                    if s == nr_slots-1: #if no ad was clicked, add a 0 reward
+                        rewards[i].append(0)
+
+        ###Hungarian for Matching each publisher's ads and slots - Alireza
+
+        ###VCG-auctions for our advertisers payments - Anne
+
+        ###using clairvoyant implementations, determine the cumulative regrets of each learner - Volunteers??
 
 
 
