@@ -73,7 +73,7 @@ for day in range(T):
         ###using a bandit (TS) to estimate the q_i,j of our advertisers subcampaigns on each website - Me
         for i in range(nr_websites):
             for s in range(nr_slots):
-                selected_ad[i,s].append(np.argmax(np.random.beta(beta_params[i,0, 0], beta_params[i,0, 1])*bid0,Q[i,user_classes[i,auction],1:,s])*bids[i]) #pulling the TS-arm: for each website, draw the arm with the highest likelihood
+                selected_ad[i,s].append(np.argmax(np.random.beta(beta_params[i,0, 0], beta_params[i,0, 1])*bid0,Q[i,user_classes[i,auction],1:,s]*bids[i])) #pulling the TS-arm: for each website, draw the arm with the highest likelihood
                 if selected_ad[i,s,-1]==0:
                     reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bid0  # Bernoulli
                 else:
