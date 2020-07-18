@@ -49,8 +49,12 @@ def get_stochastic_bids(nr_auctions):
 
 #TS-Learner and Plot variables
 beta_params=np.ones((nr_websites,4,2)) #each website has its own TS learner, which learns the 3 user class demand curves + 1 aggregated curve, with 2 parameters for each beta distribution
-selected_ad=[[[]for k in range(nr_slots)] for i in range(nr_websites)]
+selected_ad=[[] for i in range(nr_websites)]
 rewards=[[] for i in range(nr_websites)]
+
+#Matching algorithm for publishers
+def hungarian_matcher(weights):
+    return idx #the index of the ad, in the order of the slots, e.g. in idx=[2,5,1,3,7], ad 2 is chosen for slot 1, ad 5 for slot 2 etc.
 
 for day in range(T):
     if day%7 == 0: #at beginning and every 7 days the contexts are defined
@@ -72,9 +76,11 @@ for day in range(T):
 
         ###using a bandit (TS) to estimate the q_i,j of our advertisers subcampaigns on each website - Me
         for i in range(nr_websites):
+            selected_ad[i].append(hungarian_matcher(np.random.beta(beta_params[i, 0, 0], beta_params[i, 0, 1]) * bid0,
+                              Q[i, user_classes[i, auction], 1:, s] * bids[i])) #using the TS-sample for our advertiseers click probability
             for s in range(nr_slots):
-                selected_ad[i,s].append(np.argmax(np.random.beta(beta_params[i,0, 0], beta_params[i,0, 1])*bid0,Q[i,user_classes[i,auction],1:,s]*bids[i])) #pulling the TS-arm: for each website, draw the arm with the highest likelihood
-                if selected_ad[i,s,-1]==0:
+                #getting a user click
+                if selected_ad[i,-1][s]==0:
                     reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bid0  # Bernoulli
                 else:
                     reward = np.random.binomial(1, Q[i,user_classes[i,auction],selected_ad[i,s,-1],s])*bids[i]  # Bernoulli
@@ -85,7 +91,7 @@ for day in range(T):
                         beta_params[i,0,1] += (1-reward/bid0)
                     break
                 else:
-                    if s == nr_slots-1: #if no ad was clicked, add a 0 reward
+                    if s == nr_slots-1: #if no ad was clicked at all, add a 0 reward
                         rewards[i].append(0)
 
         ###Hungarian for Matching each publisher's ads and slots - Alireza
