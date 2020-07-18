@@ -34,4 +34,4 @@ Termination:\
 
 
 Qs:\
-Pt 4: Bandit after splitting feature: use new one, train one beforehand, or derive/copy from the so far used bandit\
+Pt3: Implicit prominence factors & only positive-samples for the TS learner of q_i,j\
