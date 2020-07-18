@@ -16,7 +16,7 @@ campaign_daily_budget=website_budget/T
 nr_slots=5 #using the same amount of slots for all websites
 
 #number of advertizers per website
-nr_ads=8 #using the same advertizers/number of ads on all websites
+nr_ads=8 #using the same advertizers/number of ads on all websites - this number includes our advertiser
 
 #Daily users visiting a website (same for every website, as different dataset sizes would bias the result and hinder an direct comparison)
 daily_users_mean=808
@@ -45,7 +45,7 @@ Q=np.random.rand(nr_websites,3,nr_ads,nr_slots) #again uniform distribution, ass
     #on average they should bid as much as our advertiser (to allow every advertiser to win some auctions)
     #each advertiser bids only once per day, a daily constant bid per subcampaign
 def get_stochastic_bids(nr_auctions):
-    return [[np.random.normal(campaign_daily_budget/nr_auctions, campaign_daily_budget/nr_auctions/5, nr_auctions) for i in range(nr_ads)] for k in range(nr_websites)]
+    return [[np.random.normal(campaign_daily_budget/nr_auctions, campaign_daily_budget/nr_auctions/5, nr_auctions) for i in range(nr_ads-1)] for k in range(nr_websites)]
 
 #TS-Learner and Plot variables
 beta_params=np.ones((nr_websites,4,2)) #each website has its own TS learner, which learns the 3 user class demand curves + 1 aggregated curve, with 2 parameters for each beta distribution
