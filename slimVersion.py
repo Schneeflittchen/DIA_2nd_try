@@ -1,5 +1,5 @@
 import numpy as np
-
+from Hungarian_Matcher import *
 #Time horizon in days
 T=100
 
@@ -54,6 +54,10 @@ clairvoyant_rewards=[[] for i in range(nr_websites)]
 
 #Matching algorithm for publishers: Hungarian for matching each publisher's ads and slots - Alireza
 def hungarian_matcher(weights):
+    hr = Hungarian_Matcher(weights)
+    idxs = hr.hungarian_algo()
+    return  idxs[0]
+
     return idx #the index of the ad, in the order of the slots, e.g. in idx=[2,5,1,3,7], ad 2 is chosen for slot 1, ad 5 for slot 2 etc.
 
 for day in range(T):
