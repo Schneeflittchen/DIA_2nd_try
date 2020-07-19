@@ -1,6 +1,8 @@
 import numpy as np
 from Hungarian_Matcher import *
+from knapsack import *
 #Time horizon in days
+
 T=100
 
 #number of websites
@@ -9,7 +11,9 @@ nr_websites=4
 #Buddget of our advertizer
 budget=1000
 campaign_budget=budget/nr_websites
-campaign_daily_budget=website_budget/T
+campaign_daily_budget=campaign_budget/T
+
+daily_budget = budget / T
 
 #number of slots (ads) per website
 #nr_slots=[5 for i in range(nr_websites)] #different numberr of slots for each website
@@ -21,6 +25,13 @@ nr_ads=8 #using the same advertizers/number of ads on all websites - this number
 #Daily users visiting a website (same for every website, as different dataset sizes would bias the result and hinder an direct comparison)
 daily_users_mean=808
 daily_users_deviation=144
+
+
+def get_advertiser_utility(bid, expected_clicks, average_bid,num_slot,num_advertiser):
+    prob = (bid/average_bid) * (num_slot/num_advertiser) #probability of winning the auction
+    utility = prob * expected_clicks  # utility is the reward
+
+    return utility
 
 def get_daily_users():
     return np.random.normal(daily_users_mean,daily_users_deviation)
@@ -51,7 +62,7 @@ def get_stochastic_bids(nr_auctions):
 beta_params=np.ones((nr_websites,4,2)) #each website has its own TS learner, which learns the 3 user class demand curves + 1 aggregated curve, with 2 parameters for each beta distribution
 rewards=[[] for i in range(nr_websites)]
 clairvoyant_rewards=[[] for i in range(nr_websites)]
-
+budget_discretization_steps = 20
 #Matching algorithm for publishers: Hungarian for matching each publisher's ads and slots - Alireza
 def hungarian_matcher(weights):
     hr = Hungarian_Matcher(weights)
@@ -69,10 +80,30 @@ for day in range(T):
     #sampling the user classes of each website's visitors
     user_classes = get_user_classes(nr_daily_users)
 
+
+
+
+    # expected_clicks_per_subcampaign
+    ## TODO will drawn from TS
+    expected_clicks = []
+    for subcampaign in range(nr_websites):
+        print('TODO will drawn from TS')
+        #expected_click[i] = TS.draw()
+
+
+    step = daily_budget / (len(nr_websites) - 1)
+    bids = [i * step for i in range(len(nr_websites))]
+    estimated_utilities = []
+    for subcampaign in range(nr_websites):
+        estimated_utilities.append([get_advertiser_utility(bid,expected_clicks[subcampaign], campaign_daily_budget/daily_users_mean) for bid in bids])
+
+    optimum_allocation = Knapsack(daily_budget, estimated_utilities).optimize()  # output is 2D array [[subcampaing bid] [subcampaing bid] [subcampaing bid] [subcampaing bid]]
+
     ###using knapsack to determine our advertisers bid - Talip
     bid0 = 42
     #receiving the stochastic advertiser's bids
     bids= [bid0].append(get_stochastic_bids(nr_daily_users))
+
 
     for auction in range(nr_daily_users): #evaluating each auction individually
 
