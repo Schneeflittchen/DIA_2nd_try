@@ -40,9 +40,8 @@ class_probabilities=[ [feature1_probability[i]*feature2_probability[i],
 def get_user_classes(nr_users):
      return [np.random.choices((0,1,2),class_probabilities[i,:],nr_users) for i in range(nr_websites)]
 
-#click probabilities on the different websites per user class (amount=3), to click on ad i in slot j
-    #click probabilites of the different ads in the different slots for each website vary, as every website can display them differently and attracts different users
-Q=np.random.rand(nr_websites,3,nr_ads,nr_slots) #again uniform distribution, assume each entry where index nr_ads=0 belongs to our advertiser
+#click probabilities=ad_quality_i on the different websites per user class (amount=3)
+Q=np.random.rand(nr_websites,3,nr_ads) #again uniform distribution, assume each entry where index nr_ads=0 belongs to our advertiser
 
 #define stochastic advertisers
     #on average they should bid as much as our advertiser (to allow every advertiser to win some auctions)
@@ -74,14 +73,19 @@ cumulative_regret7=[[] for i in range(nr_websites)] #for task 7
 
 def get_weights(website,bandit,user_class):
     our_adv_weights = np.multiply(np.random.beta(beta_params[website, bandit, :, 0], beta_params[website, bandit, :, 1]), bids[website][0])[newaxis].T
-    other_adv_weights = np.multiply(Q[website, user_class, 1:, :].T, bids[website][1:])
+    other_adv_weights = np.multiply(Q[website, user_class, 1:], bids[website][1:])
     return np.hstack(our_adv_weights, other_adv_weights)
 
 def sample(i, user_class, bandit): #i=nr of website, user_class=nr of user class acc. to Q definition {0,1,2}, bandit=nr of bandit acc to rewards order
     matcher = Hungarian_Matcher(get_weights(i, bandit, user_class))
     selected_ad = np.array(np.argwhere(matcher.hungarian_algo()[0] > 0)[:, 1])
     for s in range(nr_slots): # getting a user input
-        reward = np.random.binomial(1, Q[i, user_class, selected_ad[s], s]) * bids[i][selected_ad[s]]  # Bernoulli
+        if s==0:
+            if np.random.binomial(1, prominence_rates[0]) == 0: # Bernoulli - user lost interest
+                break
+        elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
+            break
+        reward = np.random.binomial(1, Q[i, user_class, selected_ad[s]]) * bids[i][selected_ad[s]]  # Bernoulli
         if reward > 0:  # if clicked
             rewards[i, bandit] += reward
             if selected_ad[s] == 0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
@@ -105,8 +109,6 @@ def lower_bound(mean, dataset, confidence=0.95):
     return np.subtract(mean,np.sqrt(np.divide(-np.log(confidence)/2,dataset)))
 
 #VCG-Auction utilities:
-# Generate prominence rate
-
 # lambda vector (prominence rates) in the slides
 prominence_rates=np.random.rand(nr_websites,nr_slots)
 
@@ -185,10 +187,15 @@ for day in range(T):
             sample(i,user_classes[i, auction],0)
 
             # using the clairvoyant algorithm for task 3
-            cv3_matcher = Hungarian_Matcher(np.multiply(np.average(Q[i, :, :, :],0).T,bids[i])) #averaging class' click probabilities to get clairvoyant aggregated probability
+            cv3_matcher = Hungarian_Matcher(np.multiply(np.average(Q[i, :, :].T,0),bids[i])) #averaging class' click probabilities to get clairvoyant aggregated probability
             selected_ad_clairvoyant3 = np.array(np.argwhere(cv3_matcher.hungarian_algo()[0]>0)[:,1])
             for s in range(nr_slots):
-                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant3[s], s]) * bids[i][selected_ad_clairvoyant3[s]]  # Bernoulli
+                if s==0:
+                    if np.random.binomial(1, prominence_rates[0]) == 0: # Bernoulli - user lost interest
+                        break
+                elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
+                    break
+                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant3[s]]) * bids[i][selected_ad_clairvoyant3[s]]  # Bernoulli
                 if reward>0:
                     rewards[i,6]+=reward
 
@@ -216,10 +223,15 @@ for day in range(T):
                 sample(i, 2, 3)
 
             # using the clairvoyant algorithm for task 4
-            cv4_matcher = Hungarian_Matcher(np.multiply(Q[i, user_classes[i, auction], :, :].T, bids[i]))
+            cv4_matcher = Hungarian_Matcher(np.multiply(Q[i, user_classes[i, auction], :], bids[i]))
             selected_ad_clairvoyant4 = np.array(np.argwhere(cv4_matcher.hungarian_algo()[0] > 0)[:, 1])
             for s in range(nr_slots):
-                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant4[s], s])*bids[i][selected_ad_clairvoyant4[s]]  # Bernoulli
+                if s==0:
+                    if np.random.binomial(1, prominence_rates[0]) == 0: # Bernoulli - user lost interest
+                        break
+                elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
+                    break
+                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant4[s]])*bids[i][selected_ad_clairvoyant4[s]]  # Bernoulli
                 if reward > 0:
                     rewards[i,7]+=reward
 
@@ -229,11 +241,16 @@ for day in range(T):
                 # (acc. to lecture "pay per click": just sort ad_value*ad_quality by highest first - but we choose hungarian over this greedy approach, to find an optimum without allocating the same ad several times) - task 6&7
             nu_bids=np.stack(our_bids[i],bids[i][1:]) #keep stochastic bids, ad our_bid at index 0
             # using the clairvoyant matcher for task 6
-            cv6_matcher = Hungarian_Matcher(np.multiply(Q[i,user_classes[i, auction],:,:].T,nu_bids)) #ad_quality*bid to maximize expected value
+            cv6_matcher = Hungarian_Matcher(np.multiply(Q[i,user_classes[i, auction],:],nu_bids)) #ad_quality*bid to maximize expected value
             selected_ad_clairvoyant6 = np.array(np.argwhere(cv6_matcher.hungarian_algo()[0] > 0)[:, 1])
             #sampling (the users get to click) - task 6&7
             for s in range(nr_slots):
-                if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant6[s], s])*nu_bids[selected_ad_clairvoyant6[s]] > 0: # Bernoulli - clicked
+                if s==0:
+                    if np.random.binomial(1, prominence_rates[0]) == 0: # Bernoulli - user lost interest
+                        break
+                elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
+                    break
+                if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant6[s]]) > 0: # Bernoulli - clicked
                     if selected_ad_clairvoyant6[s]==0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
                         beta_params_advertiser[i, 0] += 1
                     elif any([selected_ad_clairvoyant6[k] for k in range(s + 1)] == 0):
@@ -244,7 +261,6 @@ for day in range(T):
                         beta_params_advertiser[i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
 
             #payment from our advertiser to publishers - task 6&7
-            # -> Already adopting for changed Q-matrix, adopting the variables from initial VCG auction code to this framework
             slot=np.where(selected_ad_clairvoyant6 == 0)[0]
             if a>0 and a<nr_slots:
                 quality_price=np.multiply(Q[i,user_classes[i, auction],:],nu_bids)
