@@ -63,13 +63,14 @@ budget_discretization_steps = 20
 beta_params=np.ones((nr_websites,6,nr_slots,2))
 beta_params_advertiser=np.ones((nr_websites,2)) #only one TS bandit per website, learning the average CTR
     #rewards-order acc to bandit-param order: 0=basic TS, 1=1.class bandit,2=2.class, 3=3.class, 4=1.&3.class, 5=1.&3. class,
-    #additionally clairvoyant rewards: 6= for task 3, 7= for task 4, 8= for task 6, 9= for task 7
+    #additionally clairvoyant rewards: 6= for task 3, 7= for task 4, 8= for task 6
+    #9= for task 6 with no clairvoyancy
     #for context generation, use click probabilites as rewards
 rewards=np.zeros((nr_websites,10))
-cumulative_regret3=[[] for i in range(nr_websites)] #for task 3
-cumulative_regret4=[[] for i in range(nr_websites)] #for task 4
-cumulative_regret6=[[] for i in range(nr_websites)] #for task 6
-cumulative_regret7=[[] for i in range(nr_websites)] #for task 7
+cumulative_regret3=[] #for task 3
+cumulative_regret4=[] #for task 4
+cumulative_regret6=[] #for task 6
+cumulative_regret7=[] #for task 7
 
 def get_weights(website,bandit,user_class):
     our_adv_weights = np.multiply(np.random.beta(beta_params[website, bandit, :, 0], beta_params[website, bandit, :, 1]), bids[website][0])[newaxis].T
@@ -162,21 +163,28 @@ for day in range(T):
     # expected_clicks_per_subcampaign: TS to learn average Click thorugh rate per subcampaign -task 6&7
     expected_clicks = []
     for subcampaign in range(nr_websites):
-        expected_click[i] = np.random.beta(beta_params_advertiser[subcampaign, bandit, 0], beta_params_advertiser[subcampaign, bandit, 1])
+        expected_click[subcampaign] = np.random.beta(beta_params_advertiser[subcampaign, beta_params_advertiser[subcampaign], 0], beta_params_advertiser[subcampaign, beta_params_advertiser[subcampaign], 1])
 
     #need utility to determine bids (ad_value) on each website
     step = daily_budget / (nr_websites - 1)
-    our_bids = [i * step for i in range(nr_websites)]
+    stepped_bids = [i * step for i in range(nr_websites)]
     estimated_utilities = []
     for subcampaign in range(nr_websites):
         estimated_utilities.append(
             [get_advertiser_utility(bid, expected_clicks[subcampaign], campaign_daily_budget / daily_users_mean) for bid
-             in our_bids])
+             in stepped_bids])
 
-    #knapsack determines the ideal budgets - task 6&7
-    optimum_allocation = Knapsack(daily_budget,
-                                  estimated_utilities).optimize()  # output is 2D array [[subcampaing bid] [subcampaing bid] [subcampaing bid] [subcampaing bid]]
+    our_bids = Knapsack(daily_budget, estimated_utilities).optimize()  # optimum_allocation: output is 2D array [[subcampaing bid] [subcampaing bid] [subcampaing bid] [subcampaing bid]]
 
+    #Clairvoyant bidding:
+    real_clicks=[np.average(Q[:, :, 0].T,0)]
+    optimal_utilities = []
+    for subcampaign in range(nr_websites):
+        optimal_utilities.append(
+            [get_advertiser_utility(bid, real_clicks[subcampaign], campaign_daily_budget / daily_users_mean) for bid
+             in stepped_bids])
+
+    our_clairvoyant_bids = Knapsack(daily_budget, optimal_utilities).optimize()  # optimum_allocation: output is 2D array [[subcampaing bid] [subcampaing bid] [subcampaing bid] [subcampaing bid]]
 
 
     for auction in range(nr_daily_users): #evaluating each auction individually
@@ -252,6 +260,7 @@ for day in range(T):
                     break
                 if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant6[s]]) > 0: # Bernoulli - clicked
                     if selected_ad_clairvoyant6[s]==0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
+                        rewards[i,9]+=prominence_rates[s]*Q[i,user_classes[i, auction],0]*nu_bids[0]
                         beta_params_advertiser[i, 0] += 1
                     elif any([selected_ad_clairvoyant6[k] for k in range(s + 1)] == 0):
                         beta_params_advertiser[i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
@@ -268,8 +277,47 @@ for day in range(T):
                 Y = [prominence_rates[i,j] * Q[i,user_classes[i, auction],np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[np.where(selected_ad_clairvoyant6 == j)[0]] for j in range(nr_slots)]
                 budget -= (X - Y) / (Q[i,user_classes[i, auction],0] * prominence_rates[i,slot])
 
-        ###using clairvoyant implementations, determine the cumulative regrets of each learner - Volunteers??
 
+            #For the clairvoyant advertiser:
+            nu_ideal_bids=np.stack(our_clairvoyant_bids[i],bids[i][1:]) #keep stochastic bids, ad our_bid at index 0
+            cv6_ideal_bid_matcher = Hungarian_Matcher(
+                np.multiply(Q[i, user_classes[i, auction], :], nu_ideal_bids))  # ad_quality*bid to maximize expected value
+            selected_ad_cv6_ideal_bid = np.array(np.argwhere(cv6_ideal_bid_matcher.hungarian_algo()[0] > 0)[:, 1])
+            # sampling (the users get to click) - task 6&7
+            for s in range(nr_slots):
+                if s == 0:
+                    if np.random.binomial(1, prominence_rates[0]) == 0:  # Bernoulli - user lost interest
+                        break
+                elif np.random.binomial(1, prominence_rates[s] / prominence_rates[s - 1]) == 0:  # Bernoulli - user lost interest
+                    break
+                if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_cv6_ideal_bid[s]]) > 0:  # Bernoulli - clicked
+                    if selected_ad_clairvoyant6[s] == 0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
+                        rewards[i,8]+=prominence_rates[s]*Q[i,user_classes[i, auction],0]*nu_ideal_bids[0]
+                        beta_params_advertiser[i, 0] += 1
+                    elif any([selected_ad_clairvoyant6[k] for k in range(s + 1)] == 0):
+                        beta_params_advertiser[i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
+                    break  # at max one ad clicked on a website per auction
+                elif s == nr_slots - 1:  # if no ad was clicked at all
+                    if any(selected_ad_clairvoyant6 == 0):
+                        beta_params_advertiser[
+                            i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
 
+            # payment from our advertiser to publishers - task 6&7
+            slot = np.where(selected_ad_clairvoyant6 == 0)[0]
+            if a > 0 and a < nr_slots:
+                quality_price = np.multiply(Q[i, user_classes[i, auction], :], nu_bids)
+                X = optimal_SW_without_our_ad(0, prominence_rates[i, :], Q[i, user_classes[i, auction], :], nu_bids)
+                Y = [prominence_rates[i, j] * Q[
+                    i, user_classes[i, auction], np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[
+                         np.where(selected_ad_clairvoyant6 == j)[0]] for j in range(nr_slots)]
+                budget -= (X - Y) / (Q[i, user_classes[i, auction], 0] * prominence_rates[i, slot])
 
+    cumulative_regret3.append(np.average(rewards[:,0]-rewards[:,6]))
+    cumulative_regret4.append(np.average(rewards[:,1]+rewards[:,2]+rewards[:,3]+rewards[:,4]+rewards[:,5]-rewards[:,7]))
+    cumulative_regret6.append(np.average(rewards[:,9]-rewards[:,8]))
+    
 ###PLOTS
+for i in range(T):
+    cumulative_regret3[T-i]-=cumulative_regret3[T-i-1]
+    cumulative_regret4[T-i]-=cumulative_regret4[T-i-1]
+    cumulative_regret6[T-i]-=cumulative_regret6[T-i-1]
