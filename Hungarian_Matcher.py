@@ -21,7 +21,7 @@ class Hungarian_Matcher:
     def assign(self):
         assigned = np.array([])
         for i in range(0,self.dimx):
-            for j in range(0,self.dimx):
+            for j in range(0,self.dimy):
                 if (self.weights[i,j]==0 and np.sum(self.assignments[i,:])==0 and np.sum(self.assignments[:,j]==0)):
                     self.assignments[i,j] = 1
                     assigned = np.append(assigned,i)

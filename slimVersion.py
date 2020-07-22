@@ -26,19 +26,24 @@ daily_users_mean=808
 daily_users_deviation=144
 
 def get_daily_users():
-    return np.random.normal(daily_users_mean,daily_users_deviation)
+    return int(np.random.normal(daily_users_mean,daily_users_deviation)+0.5)
     #return np.random.normal(daily_users_mean,daily_users_mean,nr_websites)
 
 #User class probability, defined as twice a Binomial drawing of the binary features
     #we generate separate users for each website (so they have 1. different user classes and 2. different occurrence probabilities of user classes), to stay more realistic
 feature1_probability=np.random.uniform(0.01,1,nr_websites) #using uniform to get some rather different and maybe extreme patterns
 feature2_probability=np.random.uniform(0.01,1,nr_websites)
-class_probabilities=[ [feature1_probability[i]*feature2_probability[i],
+class_probabilities=[ np.array([feature1_probability[i]*feature2_probability[i],
                     (1-feature1_probability[i])*feature2_probability[i],
-                    feature1_probability[i]*(1-feature2_probability[i]) ] for i in range(nr_websites)] #because each website only receives 3 of the theoretically 4 user classes, we will neglect one class per website (always the same class, since the uniform distribution allows to do this without loss of generality)
+                    feature1_probability[i]*(1-feature2_probability[i]) ]) for i in range(nr_websites)] #because each website only receives 3 of the theoretically 4 user classes, we will neglect one class per website (always the same class, since the uniform distribution allows to do this without loss of generality)
+    #normalising
+for probs in class_probabilities:
+    #probs=np.divide(probs,probs.sum()) - does not work with np.random.choice, for some reason the precision is too low :/
+    probs[2]=1-probs[0]-probs[1] #ugly and untrue with regards to class_probabilities[2] probability definition, but works
+
 
 def get_user_classes(nr_users):
-     return [np.random.choices((0,1,2),class_probabilities[i,:],nr_users) for i in range(nr_websites)]
+    return [np.random.choice(3,nr_users,p=class_probabilities[i]) for i in range(nr_websites)]
 
 #click probabilities=ad_quality_i on the different websites per user class (amount=3)
 Q=np.random.rand(nr_websites,3,nr_ads) #again uniform distribution, assume each entry where index nr_ads=0 belongs to our advertiser
@@ -50,8 +55,8 @@ def get_stochastic_bids(nr_auctions):
     return [np.random.normal(campaign_daily_budget/nr_auctions, campaign_daily_budget/nr_auctions/5, nr_ads) for k in range(nr_websites)]
 
 #utilities for our advertiser's bid (task 6)
-def get_advertiser_utility(bid, expected_clicks, average_bid,num_slot,num_advertiser):
-    prob = (bid/average_bid) * (num_slot/num_advertiser) #some measure to estimate the advertisers ad_value
+def get_advertiser_utility(bid, expected_clicks, average_bid):
+    prob = (bid/average_bid) * (nr_slots/nr_ads) #some measure to estimate the advertisers ad_value
     return prob * expected_clicks  # utility is the reward
 
 budget_discretization_steps = 20
@@ -72,13 +77,18 @@ cumulative_regret4=[] #for task 4
 cumulative_regret6=[] #for task 6
 cumulative_regret7=[] #for task 7
 
-def get_weights(website,bandit,user_class):
-    our_adv_weights = np.multiply(np.random.beta(beta_params[website, bandit, :, 0], beta_params[website, bandit, :, 1]), bids[website][0])[newaxis].T
-    other_adv_weights = np.multiply(Q[website, user_class, 1:], bids[website][1:])
-    return np.hstack(our_adv_weights, other_adv_weights)
+def get_weights(website,bandit,user_class): #returns the weights of publishers matrix (ads,slots) of the allocated values for each ad: (prominence rate * quality * value)
+    adv_weights = np.zeros([nr_slots, nr_ads])
+    adv_weights[0,:] = np.multiply(Q[website, user_class, :], bids[website][:]) #all advertisers value (ie. clairvoyant)
+    for i in range(nr_slots-1):
+        adv_weights[i+1,:]= adv_weights[i,:]*prominence_rates[website,i+1] / prominence_rates[website,i]
+    adv_weights[:,0] = np.multiply(np.random.beta(beta_params[website, bandit, :, 0], beta_params[website, bandit, :, 1]),
+                bids[website][0]) #our advertisers estimated allocated values (sampling for the CTR, thus including the prominence already and only added here)
+    return adv_weights.T
 
 def sample(i, user_class, bandit): #i=nr of website, user_class=nr of user class acc. to Q definition {0,1,2}, bandit=nr of bandit acc to rewards order
     matcher = Hungarian_Matcher(get_weights(i, bandit, user_class))
+    print(matcher.dimx)
     selected_ad = np.array(np.argwhere(matcher.hungarian_algo()[0] > 0)[:, 1])
     for s in range(nr_slots): # getting a user input
         if s==0:
@@ -133,8 +143,8 @@ def optimal_SW_without_our_ad(a, prominence, quality, bids):
 
 
 for day in range(T):
-    if day%7 == 0: #at beginning and every 7 days the contexts are defined
-        for i in nr_websites:
+    if day%7 == 0 and day!=0: #every 7 days the contexts are defined (not at day=0)
+        for i in range(nr_websites):
             # expected mean (reward) of a campaign bandit by averaging the expectation values of each of its slot
             u_mean = np.average(beta_expectation(beta_params[i,:,:,0],beta_params[i,:,:,1]),1)
             u_lowerbound = lower_bound(u_mean,nr_total_users)
@@ -152,7 +162,7 @@ for day in range(T):
 
     #sampling the user classes of each website's visitors
     user_classes = get_user_classes(nr_daily_users)
-    for i in nr_websites:
+    for i in range(nr_websites):
         _ , class_count =np.unique(user_classes[i],return_counts=True)
         np.add(nr_total_users_per_class[i,:],class_count)
 
@@ -163,7 +173,7 @@ for day in range(T):
     # expected_clicks_per_subcampaign: TS to learn average Click thorugh rate per subcampaign -task 6&7
     expected_clicks = []
     for subcampaign in range(nr_websites):
-        expected_click[subcampaign] = np.random.beta(beta_params_advertiser[subcampaign, beta_params_advertiser[subcampaign], 0], beta_params_advertiser[subcampaign, beta_params_advertiser[subcampaign], 1])
+        expected_clicks.append(np.random.beta(beta_params_advertiser[subcampaign, 0], beta_params_advertiser[subcampaign, 1]))
 
     #need utility to determine bids (ad_value) on each website
     step = daily_budget / (nr_websites - 1)
@@ -177,7 +187,7 @@ for day in range(T):
     our_bids = Knapsack(daily_budget, estimated_utilities).optimize()  # optimum_allocation: output is 2D array [[subcampaing bid] [subcampaing bid] [subcampaing bid] [subcampaing bid]]
 
     #Clairvoyant bidding:
-    real_clicks=[np.average(Q[:, :, 0].T,0)]
+    real_clicks=np.average(Q[:, :, 0].T,0)
     optimal_utilities = []
     for subcampaign in range(nr_websites):
         optimal_utilities.append(
@@ -192,7 +202,7 @@ for day in range(T):
         ###Matching of ads and slots for each publisher, using Thompson-Sampling-Bandits to find our advertisers click probabilities
         for i in range(nr_websites):
             # using the TS-sample for our advertiseers click probability
-            sample(i,user_classes[i, auction],0)
+            sample(i,user_classes[i][auction],0)
 
             # using the clairvoyant algorithm for task 3
             cv3_matcher = Hungarian_Matcher(np.multiply(np.average(Q[i, :, :].T,0),bids[i])) #averaging class' click probabilities to get clairvoyant aggregated probability
@@ -203,7 +213,7 @@ for day in range(T):
                         break
                 elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
                     break
-                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant3[s]]) * bids[i][selected_ad_clairvoyant3[s]]  # Bernoulli
+                reward = np.random.binomial(1, Q[i, user_classes[i][auction], selected_ad_clairvoyant3[s]]) * bids[i][selected_ad_clairvoyant3[s]]  # Bernoulli
                 if reward>0:
                     rewards[i,6]+=reward
 
@@ -231,7 +241,7 @@ for day in range(T):
                 sample(i, 2, 3)
 
             # using the clairvoyant algorithm for task 4
-            cv4_matcher = Hungarian_Matcher(np.multiply(Q[i, user_classes[i, auction], :], bids[i]))
+            cv4_matcher = Hungarian_Matcher(np.multiply(Q[i, user_classes[i][auction], :], bids[i]))
             selected_ad_clairvoyant4 = np.array(np.argwhere(cv4_matcher.hungarian_algo()[0] > 0)[:, 1])
             for s in range(nr_slots):
                 if s==0:
@@ -239,7 +249,7 @@ for day in range(T):
                         break
                 elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
                     break
-                reward = np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant4[s]])*bids[i][selected_ad_clairvoyant4[s]]  # Bernoulli
+                reward = np.random.binomial(1, Q[i, user_classes[i][auction], selected_ad_clairvoyant4[s]])*bids[i][selected_ad_clairvoyant4[s]]  # Bernoulli
                 if reward > 0:
                     rewards[i,7]+=reward
 
@@ -249,7 +259,7 @@ for day in range(T):
                 # (acc. to lecture "pay per click": just sort ad_value*ad_quality by highest first - but we choose hungarian over this greedy approach, to find an optimum without allocating the same ad several times) - task 6&7
             nu_bids=np.stack(our_bids[i],bids[i][1:]) #keep stochastic bids, ad our_bid at index 0
             # using the clairvoyant matcher for task 6
-            cv6_matcher = Hungarian_Matcher(np.multiply(Q[i,user_classes[i, auction],:],nu_bids)) #ad_quality*bid to maximize expected value
+            cv6_matcher = Hungarian_Matcher(np.multiply(Q[i,user_classes[i][auction],:],nu_bids)) #ad_quality*bid to maximize expected value
             selected_ad_clairvoyant6 = np.array(np.argwhere(cv6_matcher.hungarian_algo()[0] > 0)[:, 1])
             #sampling (the users get to click) - task 6&7
             for s in range(nr_slots):
@@ -258,9 +268,9 @@ for day in range(T):
                         break
                 elif np.random.binomial(1, prominence_rates[s]/prominence_rates[s-1]) == 0: # Bernoulli - user lost interest
                     break
-                if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_clairvoyant6[s]]) > 0: # Bernoulli - clicked
+                if np.random.binomial(1, Q[i, user_classes[i][auction], selected_ad_clairvoyant6[s]]) > 0: # Bernoulli - clicked
                     if selected_ad_clairvoyant6[s]==0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
-                        rewards[i,9]+=prominence_rates[s]*Q[i,user_classes[i, auction],0]*nu_bids[0]
+                        rewards[i,9]+=prominence_rates[s]*Q[i,user_classes[i][auction],0]*nu_bids[0]
                         beta_params_advertiser[i, 0] += 1
                     elif any([selected_ad_clairvoyant6[k] for k in range(s + 1)] == 0):
                         beta_params_advertiser[i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
@@ -272,16 +282,16 @@ for day in range(T):
             #payment from our advertiser to publishers - task 6&7
             slot=np.where(selected_ad_clairvoyant6 == 0)[0]
             if a>0 and a<nr_slots:
-                quality_price=np.multiply(Q[i,user_classes[i, auction],:],nu_bids)
-                X = optimal_SW_without_our_ad(0, prominence_rates[i,:], Q[i,user_classes[i, auction],:], nu_bids)
-                Y = [prominence_rates[i,j] * Q[i,user_classes[i, auction],np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[np.where(selected_ad_clairvoyant6 == j)[0]] for j in range(nr_slots)]
-                budget -= (X - Y) / (Q[i,user_classes[i, auction],0] * prominence_rates[i,slot])
+                quality_price=np.multiply(Q[i,user_classes[i][auction],:],nu_bids)
+                X = optimal_SW_without_our_ad(0, prominence_rates[i,:], Q[i,user_classes[i][auction],:], nu_bids)
+                Y = [prominence_rates[i,j] * Q[i,user_classes[i][auction],np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[np.where(selected_ad_clairvoyant6 == j)[0]] for j in range(nr_slots)]
+                budget -= (X - Y) / (Q[i,user_classes[i][auction],0] * prominence_rates[i,slot])
 
 
             #For the clairvoyant advertiser:
             nu_ideal_bids=np.stack(our_clairvoyant_bids[i],bids[i][1:]) #keep stochastic bids, ad our_bid at index 0
             cv6_ideal_bid_matcher = Hungarian_Matcher(
-                np.multiply(Q[i, user_classes[i, auction], :], nu_ideal_bids))  # ad_quality*bid to maximize expected value
+                np.multiply(Q[i, user_classes[i][auction], :], nu_ideal_bids))  # ad_quality*bid to maximize expected value
             selected_ad_cv6_ideal_bid = np.array(np.argwhere(cv6_ideal_bid_matcher.hungarian_algo()[0] > 0)[:, 1])
             # sampling (the users get to click) - task 6&7
             for s in range(nr_slots):
@@ -290,9 +300,9 @@ for day in range(T):
                         break
                 elif np.random.binomial(1, prominence_rates[s] / prominence_rates[s - 1]) == 0:  # Bernoulli - user lost interest
                     break
-                if np.random.binomial(1, Q[i, user_classes[i, auction], selected_ad_cv6_ideal_bid[s]]) > 0:  # Bernoulli - clicked
+                if np.random.binomial(1, Q[i, user_classes[i][auction], selected_ad_cv6_ideal_bid[s]]) > 0:  # Bernoulli - clicked
                     if selected_ad_clairvoyant6[s] == 0:  # if our advertisers ad was displayed in the slot: update beta-distribution (since clicked: alpha+=1)
-                        rewards[i,8]+=prominence_rates[s]*Q[i,user_classes[i, auction],0]*nu_ideal_bids[0]
+                        rewards[i,8]+=prominence_rates[s]*Q[i,user_classes[i][auction],0]*nu_ideal_bids[0]
                         beta_params_advertiser[i, 0] += 1
                     elif any([selected_ad_clairvoyant6[k] for k in range(s + 1)] == 0):
                         beta_params_advertiser[i, 1] += 1  # in case our advertiser was shown, but not clicked, update beta-distribution (beta+=1)
@@ -305,12 +315,12 @@ for day in range(T):
             # payment from our advertiser to publishers - task 6&7
             slot = np.where(selected_ad_clairvoyant6 == 0)[0]
             if a > 0 and a < nr_slots:
-                quality_price = np.multiply(Q[i, user_classes[i, auction], :], nu_bids)
-                X = optimal_SW_without_our_ad(0, prominence_rates[i, :], Q[i, user_classes[i, auction], :], nu_bids)
+                quality_price = np.multiply(Q[i, user_classes[i][auction], :], nu_bids)
+                X = optimal_SW_without_our_ad(0, prominence_rates[i, :], Q[i, user_classes[i][auction], :], nu_bids)
                 Y = [prominence_rates[i, j] * Q[
-                    i, user_classes[i, auction], np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[
+                    i, user_classes[i][auction], np.where(selected_ad_clairvoyant6 == j)[0]] * nu_bids[
                          np.where(selected_ad_clairvoyant6 == j)[0]] for j in range(nr_slots)]
-                budget -= (X - Y) / (Q[i, user_classes[i, auction], 0] * prominence_rates[i, slot])
+                budget -= (X - Y) / (Q[i, user_classes[i][auction], 0] * prominence_rates[i, slot])
 
     cumulative_regret3.append(np.average(rewards[:,0]-rewards[:,6]))
     cumulative_regret4.append(np.average(rewards[:,1]+rewards[:,2]+rewards[:,3]+rewards[:,4]+rewards[:,5]-rewards[:,7]))
