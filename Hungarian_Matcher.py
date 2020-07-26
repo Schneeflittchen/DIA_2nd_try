@@ -11,6 +11,12 @@ class Hungarian_Matcher:
 
 
     def normalize(self):
+        if self.dimx > self.dimy:
+            self.weights = np.append(self.weights, np.zeros([self.dimx, 1]), 1)
+
+        if self.dimy > self.dimx:
+            self.weights = np.append(self.weights, np.zeros([1, self.dimy]), 0)
+
         for i in range(self.dimx):
             self.weights[i,:] = self.weights[i,:] - np.min(self.weights[i,:])
 
