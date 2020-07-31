@@ -11,6 +11,12 @@ class Hungarian_Matcher:
 
 
     def normalize(self):
+        if self.dimx > self.dimy:
+            self.weights = np.append(self.weights, np.zeros([self.dimx, 1]), 1)
+
+        if self.dimy > self.dimx:
+            self.weights = np.append(self.weights, np.zeros([1, self.dimy]), 0)
+
         for i in range(self.dimx):
             self.weights[i,:] = self.weights[i,:] - np.min(self.weights[i,:])
 
@@ -22,7 +28,7 @@ class Hungarian_Matcher:
         assigned = np.array([])
         for i in range(0,self.dimx):
             for j in range(0,self.dimy):
-                if (self.weights[i,j]==0 and np.sum(self.assignments[i,:])==0 and np.sum(self.assignments[:,j]==0)):
+                if (self.weights[i,j]==0 and np.sum(self.assignments[i,:])==0 and np.sum(self.assignments[:,j])==0):
                     self.assignments[i,j] = 1
                     assigned = np.append(assigned,i)
 
@@ -39,13 +45,13 @@ class Hungarian_Matcher:
                 new_marked_columns = np.append(new_marked_columns, np.setdiff1d(zeros_columns, marked_columns))
 
             marked_columns = np.append(marked_columns,new_marked_columns)
-            new_marked_columns = np.array([], dtype=int)
+            new_marked_rows = np.array([], dtype=int)
 
 
-        for c in new_marked_columns:
-            new_marked_rows = np.append(new_marked_rows, np.argwhere(self.assignments[:,c]==0).reshape(-1))
+            for c in new_marked_columns:
+                new_marked_rows = np.append(new_marked_rows, np.argwhere(self.assignments[:,c]==1).reshape(-1))
 
-        marked_rows = np.unique(np.append(marked_rows,new_marked_rows))
+            marked_rows = np.unique(np.append(marked_rows,new_marked_rows))
 
         return np.setdiff1d(rows, marked_rows).astype(int), np.unique(marked_columns)
 
@@ -65,7 +71,7 @@ class Hungarian_Matcher:
         for i in uncovered_rows.astype(int):
             self.weights[i,:] -= min_val
 
-        for j in covered_columns:
+        for j in covered_columns.astype(int):
             self.weights[:,j] += min_val
 
 
